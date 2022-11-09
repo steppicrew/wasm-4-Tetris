@@ -15,8 +15,10 @@ const col_count = 10
 const preview_row_count = 2
 const preview_col_count = 4
 
-const first_pause_between_keys = 15
-const pause_between_keys = 8
+const first_key_pause = 15
+const key_pause = 8
+
+const softdrop_pause = 2
 
 var board [row_count * col_count]byte
 var preview_board [preview_row_count * preview_col_count]byte
@@ -58,7 +60,7 @@ var y byte = 4
 var rotation byte
 
 var speed byte = 30
-var level byte = 1
+var level byte = 0
 var score uint16 = 0
 
 var scale uint
@@ -67,6 +69,7 @@ var y_offset int
 var preview_x_offset int
 var preview_y_offset int
 var remaining_key_pause byte = 0
+var remaining_softdrop_pause byte = 0
 
 func _num2str(x uint) string {
 	var digit = x % 10
@@ -83,6 +86,14 @@ func num2str(x int) string {
 	return _num2str(uint(x))
 }
 
+func _sound(freq1, freq2, volume uint, attack, decay, sustain, release, channel, mode byte) {
+	w4.Tone(freq1|freq2<<16, uint(attack)<<24|uint(decay)<<16|uint(sustain)|uint(release)<<8, volume, uint(channel)|uint(mode)<<2)
+}
+
+func sound_drop() {
+	_sound(470, 0, 8, 0, 0, 0, 4, 3, 0)
+}
+
 func new_stone(init bool) {
 	/*
 		var my_x byte = byte(rand.Intn(int(col_count)))
@@ -94,6 +105,7 @@ func new_stone(init bool) {
 	var my_y byte = 0
 
 	rotation = 0
+
 	if init {
 		this_stone = byte(rnd(len(stones)))
 		this_color = byte(rnd(4)) + 1
@@ -101,15 +113,21 @@ func new_stone(init bool) {
 		this_stone = next_stone
 		this_color = next_color
 	}
+
 	next_stone = byte(rnd(len(stones)))
 	next_color = byte(rnd(4)) + 1
 	for i := 0; i < preview_row_count*preview_col_count; i++ {
 		preview_board[i] = 0
 	}
-	if _set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, 0, 0, 0, false, false) == 0 {
-		_set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, 0, 0, 0, true, false)
+
+	if this_stone > 1 {
+		my_y = 1
+	}
+
+	if _set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, 0, 0, 0, 0, false, false) == 0 {
+		_set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, next_color, 0, 0, 0, true, false)
 	} else {
-		_set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, 0, 1, 0, true, false)
+		_set_stone(preview_board[:], preview_col_count, preview_row_count, next_stone, next_color, 0, 1, 0, true, false)
 	}
 
 	if this_stone == 0 {
@@ -137,7 +155,7 @@ func new_stone(init bool) {
 }
 
 // 0: ok, 1: already used, 2: left out, 3: right out, 4: top out
-func _set_stone(board []byte, width, height, _stone byte, x, y, rotation byte, apply bool, clear bool) byte {
+func _set_stone(board []byte, width, height, _stone, _color byte, x, y, rotation byte, apply bool, clear bool) byte {
 	if int(this_stone) > len(stones) {
 		return 1
 	}
@@ -148,13 +166,15 @@ func _set_stone(board []byte, width, height, _stone byte, x, y, rotation byte, a
 	var i = int(my_y)*int(width) + int(my_x)
 
 	if apply {
-		if clear {
-			board[i] = 0
-		} else {
-			board[i] = this_color
+		if my_x >= 0 && my_x < int8(width) && my_y >= 0 && my_y < int8(height) {
+			if clear {
+				board[i] = 0
+			} else {
+				board[i] = _color
+			}
 		}
 	} else {
-		if my_x < 0 || my_x >= int8(width) || my_y < 0 || my_y >= int8(height) {
+		if my_x < 0 || my_x >= int8(width) || my_y >= int8(height) {
 			return 1
 		}
 		if board[i] != 0 {
@@ -193,6 +213,9 @@ func _set_stone(board []byte, width, height, _stone byte, x, y, rotation byte, a
 			return 3
 		}
 		if my_y < 0 {
+			if apply {
+				continue
+			}
 			return 4
 		}
 		if my_y >= int8(height) {
@@ -203,7 +226,7 @@ func _set_stone(board []byte, width, height, _stone byte, x, y, rotation byte, a
 			if clear {
 				board[i] = 0
 			} else {
-				board[i] = this_color
+				board[i] = _color
 			}
 		} else {
 			if board[i] != 0 {
@@ -216,7 +239,7 @@ func _set_stone(board []byte, width, height, _stone byte, x, y, rotation byte, a
 
 // 0: ok, 1: already used, 2: left out, 3: right out, 4: top out
 func set_stone(x, y byte, apply bool, clear bool) byte {
-	return _set_stone(board[:], col_count, row_count, this_stone, x, y, rotation, apply, clear)
+	return _set_stone(board[:], col_count, row_count, this_stone, this_color, x, y, rotation, apply, clear)
 }
 
 func fix_rotation_coordinates(old_rotation, new_rotation byte) {
@@ -249,7 +272,8 @@ func fix_rotation_coordinates(old_rotation, new_rotation byte) {
 func remove_row(del_row byte) {
 	for row := del_row; row > 0; row-- {
 		for col := byte(0); col < col_count; col++ {
-			board[row*col_count+col] = board[(row-1)*col]
+			var i = row*col_count + col
+			board[i] = board[i-col_count]
 		}
 	}
 	for col := byte(0); col < col_count; col++ {
@@ -273,12 +297,14 @@ func check_for_completed_rows() {
 	}
 	switch removed_rows {
 	case 1:
-		score += 100 * uint16(level)
+		score += 40 * uint16(level+1)
 	case 2:
-		score += 300 * uint16(level)
-		score += 500 * uint16(level)
+		score += 100 * uint16(level+1)
+	case 3:
+		score += 300 * uint16(level+1)
+	case 4:
+		score += 1200 * uint16(level+1)
 	}
-	score += byte(uint16(removed_rows) * uint16(removed_rows+1) / 2)
 }
 
 var tick byte = 0
@@ -287,15 +313,22 @@ var last_gamepad uint8 = 0
 func _update() {
 	var gamepad = *w4.GAMEPAD1
 	var changed_gamepad = gamepad & (last_gamepad ^ 0xFF)
+	var softdrop bool = false
 
 	if changed_gamepad == 0 {
 		remaining_key_pause--
 		if remaining_key_pause == 0 {
 			changed_gamepad = gamepad
-			remaining_key_pause = pause_between_keys
+			remaining_key_pause = key_pause
+		}
+		remaining_softdrop_pause--
+		if remaining_softdrop_pause == 0 {
+			softdrop = gamepad&w4.BUTTON_DOWN != 0
+			remaining_softdrop_pause = softdrop_pause
 		}
 	} else {
-		remaining_key_pause = first_pause_between_keys
+		remaining_key_pause = first_key_pause
+		remaining_softdrop_pause = softdrop_pause
 	}
 
 	if changed_gamepad&w4.BUTTON_2 != 0 {
@@ -337,22 +370,16 @@ func _update() {
 			case 3:
 				x--
 			case 4:
-				y++
+				loop = false
 			}
 		}
 	}
-	if changed_gamepad&w4.BUTTON_DOWN != 0 {
-		for set_stone(x, y+1, false, false) == 0 {
+	if softdrop {
+		if set_stone(x, y+1, false, false) == 0 {
 			y++
+			score++
 		}
 	}
-	/*
-		if gamepad&w4.BUTTON_DOWN != 0 {
-			for set_stone(&board, x, y+1, false, false) == 0 {
-				y++
-			}
-		}
-	*/
 	last_gamepad = gamepad
 
 	tick++
@@ -361,6 +388,7 @@ func _update() {
 
 		if set_stone(x, y+1, false, false) == 0 {
 			y++
+			sound_drop()
 		} else {
 			set_stone(x, y, true, false)
 			check_for_completed_rows()
@@ -399,11 +427,14 @@ func _render() {
 	}
 	*w4.DRAW_COLORS = uint16(0x14)
 	w4.Text("Score:", int(col_count*scale)+2, 20)
-	var score_text = num2str(int(score * 10))
+	var score_text = num2str(int(score))
 	w4.Text(score_text, 158-8*len(score_text), 30)
 	w4.VLine(int(col_count*scale), 0, 160)
 	if game_over {
-		w4.Text("Game Over", 40, 50)
+		*w4.DRAW_COLORS = uint16(0x41)
+		w4.Rect(40, 46, 80, 16)
+		*w4.DRAW_COLORS = uint16(0x14)
+		w4.Text("Game Over", 44, 50)
 		return
 	}
 }
@@ -423,7 +454,7 @@ func _init() {
 	x_offset = 0 //80 - int(scale*uint(col_count)>>1)
 	y_offset = 160 - int(scale*uint(row_count))
 
-	preview_x_offset = int(scale*uint(col_count)) + 20
+	preview_x_offset = 150 - int(scale*uint(preview_col_count))
 	preview_y_offset = 80
 
 	new_stone(true)
