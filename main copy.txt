@@ -1,0 +1,267 @@
+package main
+
+import (
+	"cart/w4"
+	"math/rand"
+)
+
+var rnd = rand.New(rand.NewSource(int64(1))).Intn
+
+var game_over bool = false
+
+var board = [][]byte{
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+	{0, 0, 0, 0, 0, 0, 0, 0},
+}
+
+var row_count byte = byte(len(board))
+var col_count byte = byte(len(board[1]))
+
+// 1: rechts, 2: hoch, 3: links, 4: runter
+var stones = [7][4]byte{
+	{1, 1, 1, 0},
+	{4, 1, 1, 0},
+	{1, 1, 2, 0},
+	{1, 2, 3, 0},
+	{1, 2, 1, 0},
+	{1, 4, 1, 0},
+	{1, 2, 4, 1},
+}
+
+const width byte = 160 / 8
+const height byte = 160 / 8
+
+var this_stone byte = 100
+var x byte = 4
+var y byte = 4
+var rotation byte = 0
+var color byte = 4
+
+func _num2str(x uint) string {
+	var digit = x % 10
+	x = x / 10
+	if x > 0 {
+		return _num2str(x) + string('0'+digit)
+	}
+	return string('0' + digit)
+}
+func num2str(x int) string {
+	if x < 0 {
+		return "-" + _num2str(uint(-x))
+	}
+	return _num2str(uint(x))
+}
+
+func new_stone() {
+	/*
+		var my_x byte = byte(rand.Intn(int(col_count)))
+		var my_y byte = 0
+		rotation = byte(rand.Intn(4))
+		this_stone = byte(rand.Intn(len(stones)))
+	*/
+	var my_x byte = byte(rnd(int(col_count)))
+	var my_y byte = 0
+	rotation = byte(rnd(4))
+	this_stone = byte(rnd(len(stones)))
+	color = byte(rnd(3)) + 2
+	//color |= (4 - color) << 4
+
+	for true {
+		switch set_stone(&board, my_x, my_y, false, false) {
+		case 0:
+			x, y = my_x, my_y
+			return
+		case 1:
+			game_over = true
+			return
+		case 2:
+			my_x++
+		case 3:
+			my_x--
+		case 4:
+			my_y++
+		}
+	}
+
+}
+
+// 0: ok, 1: already used, 2: left out, 3: right out, 4: top out
+func set_stone(board *[][]byte, x, y byte, apply bool, clear bool) byte {
+	var stone [4]byte = stones[this_stone]
+	var my_x int8 = int8(x)
+	var my_y int8 = int8(y)
+
+	var dx, dy int8 = 0, 0
+	if apply {
+		if clear {
+			(*board)[my_y][my_x] = 0
+		} else {
+			(*board)[my_y][my_x] = color
+		}
+	} else {
+		if my_x < 0 || my_x > int8(col_count) || my_y < 0 || my_y >= int8(row_count) {
+			return 1
+		}
+		if (*board)[my_y][my_x] != 0 {
+			return 1
+		}
+	}
+	for _, stone_dir := range stone {
+		if stone_dir == 0 {
+			break
+		}
+		dx, dy = 0, 0
+		switch stone_dir {
+		case 1:
+			dx = 1
+		case 2:
+			dy = -1
+		case 3:
+			dx = -1
+		case 4:
+			dy = 1
+		}
+		switch rotation {
+		case 1:
+			dx, dy = dy, -dx
+		case 2:
+			dx, dy = -dx, -dy
+		case 3:
+			dx, dy = -dy, dx
+		}
+		my_x += dx
+		my_y += dy
+		if my_x < 0 {
+			return 2
+		}
+		if my_x >= int8(col_count) {
+			return 3
+		}
+		if my_y < 0 {
+			return 4
+		}
+		if my_y >= int8(row_count) {
+			return 1
+		}
+		if apply {
+			if clear {
+				(*board)[my_y][my_x] = 0
+			} else {
+				(*board)[my_y][my_x] = color
+			}
+		} else {
+			if (*board)[my_y][my_x] != 0 {
+				return 1
+			}
+		}
+	}
+	return 0
+}
+
+func _update() {
+	if game_over {
+		return
+	}
+
+	// clear current stone
+	set_stone(&board, x, y, true, true)
+
+	var gamepad = *w4.GAMEPAD1
+
+	if gamepad&w4.BUTTON_LEFT != 0 && x > 0 && set_stone(&board, x-1, y, false, false) == 0 {
+		x--
+	}
+	if gamepad&w4.BUTTON_RIGHT != 0 && x < col_count-1 && set_stone(&board, x+1, y, false, false) == 0 {
+		x++
+	}
+	if gamepad&(w4.BUTTON_UP|w4.BUTTON_DOWN) != 0 {
+		var old_rotation = rotation
+		if gamepad&w4.BUTTON_UP != 0 {
+			rotation++
+			if rotation >= 4 {
+				rotation = 0
+			}
+		} else {
+			if rotation == 0 {
+				rotation = 3
+			} else {
+				rotation--
+			}
+		}
+
+		var loop bool = true
+		for loop {
+			switch set_stone(&board, x, y, false, false) {
+			case 0:
+				loop = false
+			case 1:
+				{
+					rotation = old_rotation
+					loop = false
+				}
+			case 2:
+				x++
+			case 3:
+				x--
+			/*
+			case 4:
+				y++
+			*/
+			}
+		}
+	}
+	/*
+		if gamepad&w4.BUTTON_DOWN != 0 {
+			for set_stone(&board, x, y+1, false, false) == 0 {
+				y++
+			}
+		}
+	*/
+
+	if set_stone(&board, x, y+1, false, false) == 0 {
+		y++
+		set_stone(&board, x, y, true, false)
+	} else {
+		//set_stone(&board, x, y, true, false)
+		new_stone()
+		set_stone(&board, x, y, true, false)
+	}
+}
+
+func _render() {
+	if game_over {
+		w4.Text("Game Over", 10, 20)
+		return
+	}
+
+	for row := 0; row < int(row_count); row++ {
+		for col := 0; col < int(col_count); col++ {
+			if board[row][col] != 0 {
+				*w4.DRAW_COLORS = uint16(board[row][col])
+				w4.Rect(col*int(width), row*int(height), uint(width), uint(height))
+			}
+		}
+	}
+}
+
+var tick = 0
+
+//go:export update
+func update() {
+	if int(this_stone) > len(stones) {
+		new_stone()
+		set_stone(&board, x, y, true, false)
+	}
+	tick++
+	if tick%10 == 0 {
+		tick = 0
+		_update()
+	}
+	_render()
+}
