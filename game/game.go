@@ -31,7 +31,6 @@ var x byte = 4
 var y byte = 4
 var rotation byte
 
-var speed byte = 30
 var are byte = 0
 var lines_removed byte = 0
 var score uint16 = 0
@@ -160,12 +159,11 @@ var tick byte = 0
 var last_gamepad uint8 = 0
 
 func Update() {
-	if remove_lines_frame > 0 {
+	if title_active {
 		return
 	}
-	if !initialized {
-		initialized = true
-		initialize()
+	if remove_lines_frame > 0 {
+		return
 	}
 
 	if are > 0 {
@@ -246,7 +244,7 @@ func Update() {
 	}
 
 	tick++
-	if tick%speed == 0 {
+	if tick%get_speed() == 0 {
 		tick = 0
 
 		if set_stone(x, y+1, false, false) == 0 {
@@ -265,6 +263,10 @@ func Update() {
 
 func Render() {
 	framecount++
+	if title_active {
+		render_title()
+		return
+	}
 	for row := 0; row < int(row_count); row++ {
 		for col := 0; col < int(col_count); col++ {
 			var i = int(row)*int(col_count) + int(col)
@@ -310,12 +312,16 @@ func Render() {
 	*w4.DRAW_COLORS = uint16(0x14)
 
 	w4.Text("Score:", int(col_count*scale)+2, 20)
-	var score_text = num2str(int(score))
-	w4.Text(score_text, 158-8*len(score_text), 30)
+	var text = num2str(int(score))
+	w4.Text(text, 158-8*len(text), 30)
 
 	w4.Text("Level:", int(col_count*scale)+2, 40)
-	var level_text = num2str(int(get_level()))
-	w4.Text(level_text, 158-8*len(level_text), 50)
+	text = num2str(int(get_level()))
+	w4.Text(text, 158-8*len(text), 50)
+
+	w4.Text("Lines:", int(col_count*scale)+2, 60)
+	text = num2str(int(lines_removed))
+	w4.Text(text, 158-8*len(text), 70)
 
 	w4.VLine(int(col_count*scale), 0, 160)
 	if game_over {
@@ -325,8 +331,8 @@ func Render() {
 
 func initialize() {
 	rnd = rand.New(rand.NewSource(int64(framecount))).Intn
+	w4.Trace("init: " + num2str(int(framecount)))
 
-	speed = get_speed()
 	are = get_are(0)
 	score = 0
 	lines_removed = 0

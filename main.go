@@ -6,6 +6,7 @@ import (
 
 //go:export update
 func update() {
+	game.UpdateTitle()
 	game.Update()
 	game.Render()
 }
